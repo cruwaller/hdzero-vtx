@@ -37,12 +37,12 @@ uint8_t powerLock = 1;
 //    0------------25mW (14dBm)
 //    1------------200mW(23dBm)
 **********************************/
-uint8_t RF_POWER = 0;
+uint8_t RF_POWER = POWER_25mW;
 uint8_t RF_FREQ = 0;
-uint8_t LP_MODE = 0;
-uint8_t PIT_MODE = 0;
+uint8_t LP_MODE = LP_MODE_OFF;
+uint8_t PIT_MODE = PIT_OFF;
 uint8_t OFFSET_25MW = 0; // 0~10 -> 0~10    11~20 -> -1~-10
-uint8_t TEAM_RACE = 0;
+uint8_t TEAM_RACE = TEAM_RACE_OFF;
 uint8_t BAUDRATE = 0;
 
 uint8_t RF_BW = BW_27M;
@@ -58,15 +58,8 @@ uint8_t pwr_offset = 0;
 uint8_t heat_protect = 0;
 
 uint8_t last_SA_lock = 0;
-/*
-cur_pwr:
-    0: 25mW
-    1:200mW
-    .....
-    POWER_MAX+1: 0.1mw
-    POWER_MAX+2: 0mw
-*/
-uint8_t cur_pwr = 0;
+
+uint8_t cur_pwr = POWER_25mW;
 
 uint8_t led_status = 0;
 
@@ -76,7 +69,7 @@ int16_t temp0 = 0;
 uint8_t p;
 #endif
 
-uint8_t i = 0;
+// uint8_t i = 0;
 
 CODE_SEG const uint8_t BPLED[] = {
     0xC0, // 0
@@ -305,18 +298,18 @@ void Setting_Save() {
 
 void CFG_Back() {
     RF_FREQ = (RF_FREQ >= FREQ_NUM) ? 0 : RF_FREQ;
-    RF_POWER = (RF_POWER > POWER_MAX) ? 0 : RF_POWER;
-    LP_MODE = (LP_MODE > 2) ? 0 : LP_MODE;
+    RF_POWER = (RF_POWER >= POWER_PIT) ? POWER_25mW : RF_POWER;
+    LP_MODE = (LP_MODE > LP_MODE_UNTIL_FIRST_ARM) ? LP_MODE_OFF : LP_MODE;
     PIT_MODE = (PIT_MODE > PIT_0MW) ? PIT_OFF : PIT_MODE;
     OFFSET_25MW = (OFFSET_25MW > 20) ? 0 : OFFSET_25MW;
-    TEAM_RACE = (TEAM_RACE > 2) ? 0 : TEAM_RACE;
+    TEAM_RACE = (TEAM_RACE > TEAM_RACE_MODE2) ? TEAM_RACE_OFF : TEAM_RACE;
     BAUDRATE = (BAUDRATE > 1) ? 0 : BAUDRATE;
 }
 
 void GetVtxParameter() {
     unsigned char CODE_SEG *ptr = (unsigned char CODE_SEG *)0xFFE8;
     uint8_t i, j;
-    XDATA_SEG uint8_t tab[FREQ_NUM_EXTERNAL][POWER_MAX + 1];
+    XDATA_SEG uint8_t tab[FREQ_NUM_EXTERNAL][POWER_PIT];
     uint8_t flash_vld = 1;
     uint8_t ee_vld = 1;
     uint8_t tab_min[4] = {255, 255, 255, 255};
@@ -331,15 +324,15 @@ void GetVtxParameter() {
 
 #ifdef FIX_EEP
         for (i = 0; i < FREQ_NUM_INTERNAL; i++) {
-            for (j = 0; j <= POWER_MAX; j++) {
-                I2C_Write8_Wait(10, ADDR_EEPROM, i * (POWER_MAX + 1) + j, table_power[0][i][j]);
+            for (j = 0; j < POWER_PIT; j++) {
+                I2C_Write8_Wait(10, ADDR_EEPROM, i * (POWER_PIT) + j, table_power[0][i][j]);
             }
         }
 #endif
         // race band
         for (i = 0; i < FREQ_NUM_INTERNAL; i++) {
-            for (j = 0; j <= POWER_MAX; j++) {
-                tab[i][j] = I2C_Read8_Wait(10, ADDR_EEPROM, i * (POWER_MAX + 1) + j);
+            for (j = 0; j < POWER_PIT; j++) {
+                tab[i][j] = I2C_Read8_Wait(10, ADDR_EEPROM, i * (POWER_PIT) + j);
                 if (tab[i][j] < tab_min[j])
                     tab_min[j] = tab[i][j];
                 if (tab[i][j] == 0xFF)
@@ -348,14 +341,14 @@ void GetVtxParameter() {
         }
 
         // fatshark band
-        for (j = 0; j <= POWER_MAX; j++) {
+        for (j = 0; j < POWER_PIT; j++) {
             tab[8][j] = tab[3][j];
             tab[9][j] = tab[4][j];
         }
 
         // low band
         for (i = 10; i < FREQ_NUM_EXTERNAL; i++) {
-            for (j = 0; j <= POWER_MAX; j++) {
+            for (j = 0; j < POWER_PIT; j++) {
                 tab[i][j] = tab_min[j] - 4;
             }
         }
@@ -365,12 +358,12 @@ void GetVtxParameter() {
             debugf("\r\nUSE EEPROM for rf_pwr_tab.");
 #endif
             for (i = 0; i < FREQ_NUM_EXTERNAL; i++) {
-                for (j = 0; j <= POWER_MAX; j++) {
+                for (j = 0; j < POWER_PIT; j++) {
                     table_power[i][j] = tab[i][j];
 #ifndef _RF_CALIB
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
 #else
-                    if (j == 0) // 25mw +3dbm
+                    if (j == POWER_25mW) // 25mw +3dbm
                         table_power[i][j] += 0xC;
 #endif
 #endif
@@ -383,8 +376,8 @@ void GetVtxParameter() {
 
 #ifdef _RF_CALIB
             for (i = 0; i < FREQ_NUM_INTERNAL; i++) {
-                for (j = 0; j <= POWER_MAX; j++) {
-                    I2C_Write8_Wait(10, ADDR_EEPROM, i * (POWER_MAX + 1) + j, table_power[i][j]);
+                for (j = 0; j < POWER_PIT; j++) {
+                    I2C_Write8_Wait(10, ADDR_EEPROM, i * POWER_PIT + j, table_power[i][j]);
                 }
             }
 #endif
@@ -407,11 +400,11 @@ void GetVtxParameter() {
         CFG_Back();
 #ifdef RESET_CONFIG
         RF_FREQ = 0;
-        RF_POWER = 0;
-        LP_MODE = 0;
-        PIT_MODE = 0;
+        RF_POWER = POWER_25mW;
+        LP_MODE = LP_MODE_OFF;
+        PIT_MODE = PIT_OFF;
         OFFSET_25MW = 0;
-        TEAM_RACE = 0;
+        TEAM_RACE = TEAM_RACE_OFF;
         BAUDRATE = 0;
         I2C_Write8_Wait(10, ADDR_EEPROM, EEP_ADDR_RF_FREQ, RF_FREQ);
         I2C_Write8_Wait(10, ADDR_EEPROM, EEP_ADDR_RF_POWER, RF_POWER);
@@ -440,7 +433,7 @@ void GetVtxParameter() {
 
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
         // powerLock
-        powerLock = 0x01 & I2C_Read8_Wait(10, ADDR_EEPROM, EEP_ADDR_POWER_LOCK);
+        powerLock = POWER_200mW & I2C_Read8_Wait(10, ADDR_EEPROM, EEP_ADDR_POWER_LOCK);
 #endif
     } else {
         CFG_Back();
@@ -449,21 +442,22 @@ void GetVtxParameter() {
 #ifdef _DEBUG_DM6300
     for (i = 0; i < FREQ_NUM_EXTERNAL; i++) {
         debugf("\r\nrf_pwr_tab[%d]=", (uint16_t)i);
-        for (j = 0; j <= POWER_MAX; j++)
+        for (j = 0; j < POWER_PIT; j++)
             debugf(" %x", (uint16_t)table_power[i][j]);
     }
-    debugf("\r\nUSE EEPROM for VTX setting:RF_FREQ=%d, RF_POWER=%d, LPMODE=%d PIT_MODE=%d", (uint16_t)RF_FREQ, (uint16_t)RF_POWER, (uint16_t)LP_MODE, (uint16_t)PIT_MODE);
+    debugf("\r\nUSE EEPROM for VTX setting:RF_FREQ=%d, RF_POWER=%d, LPMODE=%d PIT_MODE=%d",
+           (uint16_t)RF_FREQ, (uint16_t)RF_POWER, (uint16_t)LP_MODE, (uint16_t)PIT_MODE);
 #endif
 }
 
-void Init_6300RF(uint8_t freq, uint8_t pwr) {
+void Init_6300RF(uint8_t const freq, uint8_t const pwr) {
     WriteReg(0, 0x8F, 0x00);
     WriteReg(0, 0x8F, 0x01);
     DM6300_Init(freq, RF_BW);
     DM6300_SetChannel(freq);
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-    if ((pwr == 3) && (!g_IS_ARMED))
+    if ((pwr == POWER_1000mW) && (!g_IS_ARMED))
         pwr_lmt_done = 0;
     else
 #endif
@@ -479,6 +473,31 @@ void Init_6300RF(uint8_t freq, uint8_t pwr) {
 #endif
 }
 
+void InitAndCalibrate_6300RF(uint8_t const freq, uint8_t const pwr) {
+    Init_6300RF(freq, pwr);
+    DM6300_AUXADC_Calib();
+}
+
+void SetPower_6300RF(uint8_t const freq, uint8_t const pwr, uint8_t const offset) {
+    if (!dm6300_init_done) {
+        InitAndCalibrate_6300RF(freq, pwr);
+    } else {
+        if (cur_pwr == pwr)
+            return;
+#ifndef VIDEO_PAT
+#if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
+        if ((pwr == POWER_1000mW) && (!g_IS_ARMED))
+            pwr_lmt_done = 0;
+        else
+#endif
+#endif
+        {
+            DM6300_SetPower(pwr, freq, offset);
+            cur_pwr = pwr;
+        }
+    }
+}
+
 void Init_HW() {
     WAIT(100);
     SPI_Init();
@@ -489,13 +508,12 @@ void Init_HW() {
     RF_FREQ = 0;
     GetVtxParameter();
 #ifdef _RF_CALIB
-    RF_POWER = 0; // max power
-    RF_FREQ = 0;  // ch1
+    RF_POWER = POWER_25mW; // max power
+    RF_FREQ = 0;           // ch1
 #else
-    RF_POWER = 0;
+    RF_POWER = POWER_25mW;
 #endif
-    Init_6300RF(RF_FREQ, RF_POWER);
-    DM6300_AUXADC_Calib();
+    InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
 #else
 #ifdef USE_TC3587_LED
     LED_TC3587_Init();
@@ -667,7 +685,7 @@ void PowerAutoSwitch() {
 
     temp = temperature >> 2;
 
-    if (RF_POWER == 0) {
+    if (RF_POWER == POWER_25mW) {
         if (temp < 0x479)
             pwr_offset = 0;
         else if (temp < 0x488)
@@ -833,10 +851,10 @@ void HeatProtect() {
                             heat_protect = 1;
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                             WriteReg(0, 0x8F, 0x00);
-                            msp_set_vtx_config(POWER_MAX + 1, 0);
+                            msp_set_vtx_config(POWER_PIT, 0);
 #else
-                            DM6300_SetPower(0, RF_FREQ, 0);
-                            msp_set_vtx_config(0, 0);
+                            DM6300_SetPower(POWER_25mW, RF_FREQ, 0);
+                            msp_set_vtx_config(POWER_25mW, 0);
 #endif
                             cur_pwr = 0;
                             pwr_offset = 0;
@@ -856,7 +874,7 @@ void HeatProtect() {
 void PwrLMT() {
     static uint8_t p_init = 1;
 
-    if (cur_pwr > POWER_MAX)
+    if (cur_pwr >= POWER_PIT)
         return;
 
 #ifndef _RF_CALIB
@@ -871,7 +889,7 @@ void PwrLMT() {
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                     // test: power plus every sec
                     if (pwr_lmt_sec >= 3) {
-                        if (RF_POWER == 3) {
+                        if (RF_POWER == POWER_1000mW) {
                             if (p_init) {
                                 p = table_power[RF_FREQ][3] - 0x1C;
                                 p_init = 0;
@@ -944,7 +962,7 @@ void PwrLMT() {
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                         // test: power plus every sec
                         if (pwr_lmt_sec >= 3) {
-                            if (RF_POWER == 3) {
+                            if (RF_POWER == POWER_1000mW) {
                                 if (p_init) {
                                     p = table_power[RF_FREQ][3] - 0x1C;
                                     p_init = 0;
@@ -1117,7 +1135,7 @@ void Imp_RF_Param() {
         return;
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-    if (RF_POWER == 3 && !g_IS_ARMED)
+    if (RF_POWER == POWER_1000mW && !g_IS_ARMED)
         pwr_lmt_done = 0;
     else
 #endif
@@ -1138,8 +1156,7 @@ void Button1_SP() {
 #ifdef _DEBUG_MODE
         debugf("\n\rDM6300 init");
 #endif
-        Init_6300RF(RF_FREQ, RF_POWER);
-        DM6300_AUXADC_Calib();
+        InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
         cur_pwr = RF_POWER;
         // reset pitmode
         vtx_pit_save = PIT_OFF;
@@ -1178,13 +1195,13 @@ void Button1_SP() {
         }
         break;
     case 2:
-        if (RF_POWER >= POWER_MAX)
-            RF_POWER = 0;
+        if (RF_POWER >= POWER_PIT)
+            RF_POWER = POWER_25mW;
         else
             RF_POWER++;
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
         if (powerLock)
-            RF_POWER &= 0x01;
+            RF_POWER &= POWER_200mW;
 #endif
         Imp_RF_Param();
         Setting_Save();
@@ -1196,7 +1213,7 @@ void Button1_SP() {
         } else {
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-            if (RF_POWER == 3 && !g_IS_ARMED)
+            if (RF_POWER == POWER_1000mW && !g_IS_ARMED)
                 pwr_lmt_done = 0;
             else
 #endif
@@ -1209,8 +1226,8 @@ void Button1_SP() {
         break;
     case 3:
         LP_MODE++;
-        if (LP_MODE > 2)
-            LP_MODE = 0;
+        if (LP_MODE > LP_MODE_UNTIL_FIRST_ARM)
+            LP_MODE = LP_MODE_OFF;
 
         if (LP_MODE) {
             DM6300_SetPower(0, RF_FREQ, 0); // limit power to 25mW
@@ -1440,7 +1457,7 @@ void LED_Task() {
     } else if (heat_protect) {
         if (timer_2hz)
             LED_Flip();
-    } else if (cur_pwr == POWER_MAX + 2) {
+    } else if (cur_pwr == POWER_0mW) {
         if (timer_8hz) {
             LED_Flip();
         }

@@ -53,11 +53,35 @@ typedef enum {
 #define FREQ_NUM_EXTERNAL 18
 extern uint8_t lowband_lock;
 #define FREQ_NUM (lowband_lock ? 10 : 18)
+
+enum {
+    POWER_25mW = 0,
+    POWER_200mW,
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-#define POWER_MAX 3
-#else
-#define POWER_MAX 1
+    POWER_500mW,
+    POWER_1000mW,
 #endif
+    POWER_PIT,
+    POWER_0mW, // power off
+};
+
+enum {
+    PIT_OFF,
+    PIT_P1MW,
+    PIT_0MW,
+};
+
+enum {
+    LP_MODE_OFF,
+    LP_MODE_ALWAYS,
+    LP_MODE_UNTIL_FIRST_ARM,
+};
+
+enum {
+    TEAM_RACE_OFF,
+    TEAM_RACE_MODE1,
+    TEAM_RACE_MODE2,
+};
 
 #ifdef USE_TC3587_LED
 #define LED_BLUE_ON  I2C_Write16(ADDR_TC3587, 0x0014, 0x0000)
@@ -73,7 +97,9 @@ void video_detect();
 void PwrLMT();
 void TempDetect();
 
-void Init_6300RF(uint8_t freq, uint8_t pwr);
+void Init_6300RF(uint8_t const freq, uint8_t const pwr);
+void InitAndCalibrate_6300RF(uint8_t const freq, uint8_t const pwr);
+void SetPower_6300RF(uint8_t const freq, uint8_t const pwr, uint8_t const offset);
 
 void GetVtxParameter();
 void Setting_Save();

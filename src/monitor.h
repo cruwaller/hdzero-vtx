@@ -1,8 +1,8 @@
 #ifndef __MONITOR_H_
 #define __MONITOR_H_
 
-#include "stdint.h"
 #include "toolchain.h"
+#include <stdint.h>
 
 #define MAX_CMD_LEN 30
 #define Prompt()    debugf("\r\nDM568X>")

@@ -39,7 +39,7 @@ uint8_t vtx_lp;
 uint8_t vtx_pit;
 uint8_t vtx_pit_save = PIT_OFF;
 uint8_t vtx_offset = 0;
-uint8_t vtx_team_race = 0;
+uint8_t vtx_team_race = TEAM_RACE_OFF;
 uint8_t first_arm = 0;
 
 uint8_t fc_pwr_rx = 0;
@@ -194,7 +194,7 @@ void msp_task() {
             msp_cmd_tx();
 
         if (seconds - fc_lst_rcv_sec > 2) {
-            if (TEAM_RACE == 0x01)
+            if (TEAM_RACE == TEAM_RACE_MODE1)
                 vtx_paralized();
         }
     }
@@ -221,7 +221,7 @@ uint8_t msp_read_one_frame() {
             return ret;
         rx = CMS_rx();
 
-        if (TEAM_RACE)
+        if (TEAM_RACE != TEAM_RACE_OFF)
             fc_lst_rcv_sec = seconds;
 
         switch (state) {
@@ -783,8 +783,8 @@ void msp_set_vtx_config(uint8_t power, uint8_t save) {
     crc ^= 0x00; // freq_h
     CMS_tx(power + 1);
     crc ^= (power + 1); // power_level
-    CMS_tx((PIT_MODE & 1));
-    crc ^= (PIT_MODE & 1); // pitmode
+    CMS_tx((PIT_MODE & PIT_P1MW));
+    crc ^= (PIT_MODE & PIT_P1MW); // pitmode
     CMS_tx(LP_MODE);
     crc ^= LP_MODE; // lp_mode
     CMS_tx(0x00);
@@ -812,8 +812,8 @@ void msp_set_vtx_config(uint8_t power, uint8_t save) {
         crc ^= (5); // power count
     }
 #else
-    CMS_tx(POWER_MAX + 2);
-    crc ^= (POWER_MAX + 2); // power count
+    CMS_tx(POWER_0mW);
+    crc ^= (POWER_0mW); // power count
 #endif
     CMS_tx(0x00);
     crc ^= 0x00; // disable/clear vtx table
@@ -909,13 +909,6 @@ void parse_vtx_config() {
     // uint8_t const power = msp_rx_buf[3];
     // uint8_t const pitmode = msp_rx_buf[4];
 
-    /*
-    nxt_pwr:
-        0: 25mW
-        1:200mW
-        .....
-        POWER_MAX+1: 0mw
-    */
     // uint8_t nxt_pwr = 0;
     // uint8_t pit_update = 0;
     // uint8_t needSaveEEP = 0;
@@ -931,8 +924,8 @@ void parse_vtx_config() {
     }
 
     fc_pwr_rx = msp_rx_buf[3] - 1;
-    if (fc_pwr_rx > (POWER_MAX + 2))
-        fc_pwr_rx = 0;
+    if (fc_pwr_rx > POWER_0mW)
+        fc_pwr_rx = POWER_25mW;
 
     // Check configured band
     nxt_ch = parse_vtx_band_and_channel(msp_rx_buf[1], msp_rx_buf[2]);
@@ -1029,7 +1022,7 @@ void parseMspVtx_V2(uint16_t const cmd_u16) {
     // update LP_MODE
     if (fc_lp_rx != last_lp) {
         last_lp = fc_lp_rx;
-        if (fc_lp_rx < 2) {
+        if (fc_lp_rx < LP_MODE_UNTIL_FIRST_ARM) {
             LP_MODE = fc_lp_rx;
         }
         needSaveEEP = 1;
@@ -1051,12 +1044,12 @@ void parseMspVtx_V2(uint16_t const cmd_u16) {
     // update pit
     nxt_pwr = fc_pwr_rx - 1;
 
-    if ((boot_0mw_done == 0) && TEAM_RACE) {
-        msp_set_vtx_config(POWER_MAX + 1, 0);
+    if ((boot_0mw_done == 0) && TEAM_RACE != TEAM_RACE_OFF) {
+        msp_set_vtx_config(POWER_PIT, 0);
         // sometimes FC delay to receive 0mW, so check fc reply power and resend 0mW.
-        if (nxt_pwr == POWER_MAX + 1) {
+        if (nxt_pwr == POWER_PIT) {
             dm6300_init_done = 0;
-            cur_pwr = POWER_MAX + 2;
+            cur_pwr = POWER_0mW;
             vtx_pit_save = PIT_0MW;
             vtx_pit = PIT_0MW;
             boot_0mw_done = 1;
@@ -1064,9 +1057,8 @@ void parseMspVtx_V2(uint16_t const cmd_u16) {
         return;
     }
 
-    if ((nxt_pwr != POWER_MAX + 1) && (!dm6300_init_done)) {
-        Init_6300RF(RF_FREQ, RF_POWER);
-        DM6300_AUXADC_Calib();
+    if ((nxt_pwr != POWER_PIT) && (!dm6300_init_done)) {
+        InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
     }
 
     PIT_MODE = fc_pit_rx & 1;
@@ -1075,28 +1067,29 @@ void parseMspVtx_V2(uint16_t const cmd_u16) {
 #endif
     if (fc_pit_rx != last_pit) {
         if (PIT_MODE) {
-            DM6300_SetPower(POWER_MAX + 1, RF_FREQ, pwr_offset);
-            cur_pwr = POWER_MAX + 1;
+            DM6300_SetPower(POWER_PIT, RF_FREQ, pwr_offset);
+            cur_pwr = POWER_PIT;
             vtx_pit_save = PIT_MODE;
         } else {
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-            if ((RF_POWER == 3) && (!g_IS_ARMED))
+            if ((RF_POWER == POWER_1000mW) && (!g_IS_ARMED))
                 pwr_lmt_done = 0;
             else
 #endif
 #endif
-                if (nxt_pwr == POWER_MAX + 1) {
-                WriteReg(0, 0x8F, 0x10);
-                dm6300_init_done = 0;
-                cur_pwr = POWER_MAX + 2;
-                vtx_pit_save = PIT_0MW;
-                vtx_pit = PIT_0MW;
-                temp_err = 1;
-            } else {
-                DM6300_SetPower(RF_POWER, RF_FREQ, pwr_offset);
-                cur_pwr = RF_POWER;
-                vtx_pit_save = PIT_MODE;
+            {
+                if (nxt_pwr == POWER_PIT) {
+                    DM6300_powerOff();
+                    cur_pwr = POWER_0mW;
+                    vtx_pit_save = PIT_0MW;
+                    vtx_pit = PIT_0MW;
+                    temp_err = 1;
+                } else {
+                    DM6300_SetPower(RF_POWER, RF_FREQ, pwr_offset);
+                    cur_pwr = RF_POWER;
+                    vtx_pit_save = PIT_MODE;
+                }
             }
         }
         last_pit = fc_pit_rx;
@@ -1105,49 +1098,27 @@ void parseMspVtx_V2(uint16_t const cmd_u16) {
 
     // update power
     if (last_pwr != nxt_pwr) {
-        if (last_pwr == POWER_MAX + 1) {
+        if (last_pwr == POWER_PIT) {
             // Exit 0mW
-            if (cur_pwr == POWER_MAX + 2) {
-                if (PIT_MODE)
-                    Init_6300RF(RF_FREQ, POWER_MAX + 1);
-                else
-                    Init_6300RF(RF_FREQ, RF_POWER);
-                DM6300_AUXADC_Calib();
+            if (cur_pwr == POWER_0mW) {
+                InitAndCalibrate_6300RF(RF_FREQ, (PIT_MODE ? POWER_PIT : RF_POWER));
                 needSaveEEP = 1;
             }
             vtx_pit_save = PIT_MODE;
-        } else if (nxt_pwr == POWER_MAX + 1) {
+        } else if (nxt_pwr == POWER_PIT) {
             // Enter 0mW
-            if (cur_pwr != POWER_MAX + 2) {
-                WriteReg(0, 0x8F, 0x10);
-                dm6300_init_done = 0;
-                cur_pwr = POWER_MAX + 2;
+            if (cur_pwr != POWER_0mW) {
+                DM6300_powerOff();
+                cur_pwr = POWER_0mW;
                 vtx_pit_save = PIT_0MW;
                 temp_err = 1;
             }
-        } else if (nxt_pwr <= POWER_MAX) {
+        } else if (nxt_pwr < POWER_PIT) {
             RF_POWER = nxt_pwr;
             if (PIT_MODE)
-                nxt_pwr = POWER_MAX + 1;
-            if (dm6300_init_done) {
-                if (cur_pwr != nxt_pwr) {
-#ifndef VIDEO_PAT
-#if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-                    if ((nxt_pwr == 3) && (!g_IS_ARMED))
-                        pwr_lmt_done = 0;
-                    else
-#endif
-#endif
-                    {
-                        DM6300_SetPower(nxt_pwr, RF_FREQ, pwr_offset);
-                        cur_pwr = nxt_pwr;
-                    }
-                    needSaveEEP = 1;
-                }
-            } else {
-                Init_6300RF(RF_FREQ, RF_POWER);
-                DM6300_AUXADC_Calib();
-            }
+                nxt_pwr = POWER_PIT;
+            SetPower_6300RF(RF_FREQ, nxt_pwr, pwr_offset);
+            needSaveEEP = 1;
             vtx_pit_save = PIT_MODE;
         }
         last_pwr = nxt_pwr;
@@ -1314,7 +1285,7 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
     case CMS_OSD:
         if (!g_IS_ARMED) {
             if (IS_HI_yaw && IS_LO_throttle && IS_LO_roll && IS_LO_pitch) {
-                if (cur_pwr == POWER_MAX + 2) {
+                if (cur_pwr == POWER_0mW) {
                     cms_state = CMS_EXIT_0MW;
                     // debugf("\r\ncms_state(%x),cur_pwr(%x)",cms_state, cur_pwr);
                     cms_cnt = 0;
@@ -1327,7 +1298,7 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                     vtx_state = 0;
                 }
             } else if (IS_LO_yaw && IS_LO_throttle && IS_HI_roll && IS_LO_pitch) {
-                if (cur_pwr != POWER_MAX + 2) {
+                if (cur_pwr != POWER_0mW) {
                     cms_state = CMS_ENTER_0MW;
                     // debugf("\r\ncms_state(%x)",cms_state);
                     cms_cnt = 0;
@@ -1359,10 +1330,9 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
             if (!SA_lock) {
                 save_vtx_param();
             } else {
-                msp_set_vtx_config(POWER_MAX + 1, 0); // enter 0mW for SA
-                WriteReg(0, 0x8F, 0x10);
-                dm6300_init_done = 0;
-                cur_pwr = POWER_MAX + 2;
+                msp_set_vtx_config(POWER_PIT, 0); // enter 0mW for SA
+                DM6300_powerOff();
+                cur_pwr = POWER_0mW;
                 temp_err = 1;
             }
         }
@@ -1379,11 +1349,10 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
             vtx_offset = OFFSET_25MW;
             vtx_team_race = TEAM_RACE;
             if (SA_lock) {
-                // PIT_MODE = 2;
+                // PIT_MODE = PIT_0MW;
                 vtx_pit = PIT_P1MW;
-                Init_6300RF(RF_FREQ, POWER_MAX + 1);
-                cur_pwr = POWER_MAX + 1;
-                DM6300_AUXADC_Calib();
+                InitAndCalibrate_6300RF(RF_FREQ, POWER_PIT);
+                cur_pwr = POWER_PIT;
 #ifdef _DEBUG_MODE
                 debugf("\r\nExit 0mW\r\n");
 #endif
@@ -1391,10 +1360,7 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
             } else {
                 save_vtx_param();
                 pit_mode_cfg_done = 1; // avoid to config DM6300 again
-                // SPI_Write(0x6, 0xFF0, 0x00000018);
-                // SPI_Write(0x3, 0xd00, 0x00000003);
-                Init_6300RF(RF_FREQ, RF_POWER);
-                DM6300_AUXADC_Calib();
+                InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
 #ifdef _DEBUG_MODE
                 debugf("\r\nExit 0mW\r\n");
 #endif
@@ -1451,12 +1417,12 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                             ;
                         else {
                             vtx_power++;
+                            if (vtx_power >= POWER_PIT)
+                                vtx_power = (POWER_PIT - 1);
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                             if (powerLock)
-                                vtx_power &= 0x01;
+                                vtx_power &= POWER_200mW;
 #endif
-                            if (vtx_power > POWER_MAX)
-                                vtx_power = 0;
                         }
                     } else if (VirtualBtn == BTN_LEFT) {
                         if (SA_lock)
@@ -1465,12 +1431,12 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                             ;
                         else {
                             vtx_power--;
+                            if (vtx_power >= POWER_PIT)
+                                vtx_power = POWER_25mW;
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                             if (powerLock)
-                                vtx_power &= 0x01;
+                                vtx_power &= POWER_200mW;
 #endif
-                            if (vtx_power > POWER_MAX)
-                                vtx_power = POWER_MAX;
                         }
                     }
                     update_vtx_menu_param(vtx_state);
@@ -1489,8 +1455,8 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                             ;
                         else {
                             vtx_lp--;
-                            if (vtx_lp > 2)
-                                vtx_lp = 2;
+                            if (vtx_lp > LP_MODE_UNTIL_FIRST_ARM)
+                                vtx_lp = LP_MODE_UNTIL_FIRST_ARM;
                         }
                     } else if (VirtualBtn == BTN_RIGHT) {
                         if (SA_lock)
@@ -1499,8 +1465,8 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                             ;
                         else {
                             vtx_lp++;
-                            if (vtx_lp > 2)
-                                vtx_lp = 0;
+                            if (vtx_lp > LP_MODE_UNTIL_FIRST_ARM)
+                                vtx_lp = LP_MODE_OFF;
                         }
                     }
                     update_vtx_menu_param(vtx_state);
@@ -1574,12 +1540,12 @@ void update_cms_menu(uint16_t roll, uint16_t pitch, uint16_t yaw, uint16_t throt
                         vtx_state = 4;
                     else if (VirtualBtn == BTN_LEFT) {
                         vtx_team_race--;
-                        if (vtx_team_race > 2)
-                            vtx_team_race = 2;
+                        if (vtx_team_race > TEAM_RACE_MODE2)
+                            vtx_team_race = TEAM_RACE_MODE2;
                     } else if (VirtualBtn == BTN_RIGHT) {
                         vtx_team_race++;
-                        if (vtx_team_race > 2)
-                            vtx_team_race = 0;
+                        if (vtx_team_race > TEAM_RACE_MODE2)
+                            vtx_team_race = TEAM_RACE_OFF;
                     }
                     update_vtx_menu_param(vtx_state);
                     break;
@@ -1814,7 +1780,7 @@ void save_vtx_param() {
     lp_mode_cfg_done = 0;
     first_arm = 0;
 
-    if (TEAM_RACE)
+    if (TEAM_RACE != TEAM_RACE_OFF)
         boot_0mw_done = 1;
 
     if (SA_lock)
@@ -1823,7 +1789,7 @@ void save_vtx_param() {
         ;
     else {
         if (vtx_pit == PIT_0MW)
-            msp_set_vtx_config(POWER_MAX + 1, 0);
+            msp_set_vtx_config(POWER_PIT, 0);
         else
             msp_set_vtx_config(RF_POWER, 1);
     }
@@ -1850,26 +1816,19 @@ void set_vtx_param() {
         if (PIT_MODE) {
             if (!pit_mode_cfg_done) {
                 if (vtx_pit_save == PIT_0MW) {
-                    WriteReg(0, 0x8F, 0x10);
-                    dm6300_init_done = 0;
-// SPI_Write(0x6, 0xFF0, 0x00000018);
-// SPI_Write(0x3, 0xd00, 0x00000000);
+                    DM6300_powerOff();
 #ifdef _DEBUG_MODE
                     debugf("\r\nDM6300 0mW");
 #endif
-                    cur_pwr = POWER_MAX + 2;
+                    cur_pwr = POWER_0mW;
                     temp_err = 1;
                 } else // if(vtx_pit_save == PIT_P1MW)
                 {
-                    if (!dm6300_init_done) {
-                        Init_6300RF(RF_FREQ, POWER_MAX + 1);
-                        DM6300_AUXADC_Calib();
-                    } else
-                        DM6300_SetPower(POWER_MAX + 1, RF_FREQ, 0);
+                    SetPower_6300RF(RF_FREQ, POWER_PIT, 0);
 #ifdef _DEBUG_MODE
                     debugf("\r\nDM6300 P1mW");
 #endif
-                    cur_pwr = POWER_MAX + 1;
+                    cur_pwr = POWER_PIT;
                 }
                 pit_mode_cfg_done = 1;
             }
@@ -1888,12 +1847,9 @@ void set_vtx_param() {
     if (g_IS_ARMED && !g_IS_ARMED_last) {
         // Power_Auto
         if (vtx_pit_save == PIT_0MW) {
-            if (TEAM_RACE)
-                ;
-            else {
+            if (TEAM_RACE == TEAM_RACE_OFF) {
                 // exit 0mW
-                Init_6300RF(RF_FREQ, RF_POWER);
-                DM6300_AUXADC_Calib();
+                InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
                 cur_pwr = RF_POWER;
                 vtx_pit = PIT_OFF;
                 vtx_pit_save = PIT_OFF;
@@ -1905,7 +1861,7 @@ void set_vtx_param() {
 #endif
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-            if (RF_POWER == 3 && !g_IS_ARMED)
+            if (RF_POWER == POWER_1000mW && !g_IS_ARMED)
                 pwr_lmt_done = 0;
             else
 #endif
@@ -1916,15 +1872,9 @@ void set_vtx_param() {
             }
         } else if (heat_protect) {
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-            WriteReg(0, 0x8F, 0x00);
-            WriteReg(0, 0x8F, 0x01);
-            DM6300_Init(RF_FREQ, RF_BW);
-            DM6300_SetChannel(RF_FREQ);
-            DM6300_SetPower(0, RF_FREQ, 0);
-            WriteReg(0, 0x8F, 0x11);
+            DM6300_SetPower(POWER_25mW, RF_FREQ, 0);
 #else
             DM6300_SetPower(RF_POWER, RF_FREQ, pwr_offset);
-            cur_pwr = RF_POWER;
             heat_protect = 0;
 #endif
         }
@@ -1932,10 +1882,11 @@ void set_vtx_param() {
         first_arm = 1;
         PIT_MODE = PIT_OFF;
         I2C_Write8_Wait(10, ADDR_EEPROM, EEP_ADDR_PITMODE, PIT_MODE);
-        if (!TEAM_RACE)
+        if (TEAM_RACE == TEAM_RACE_OFF) {
             ; // msp_set_vtx_config(RF_POWER, 1);
+        }
     } else if (!g_IS_ARMED && g_IS_ARMED_last) {
-        if (LP_MODE == 1) {
+        if (LP_MODE == LP_MODE_ALWAYS) {
             DM6300_SetPower(0, RF_FREQ, 0); // limit power to 25mW during disarmed
             cur_pwr = 0;
 #ifdef _DEBUG_MODE
@@ -1986,8 +1937,8 @@ void InitVtxTable() {
 #endif
 
     // set band num, channel num and power level number
-    if (TEAM_RACE)
-        msp_set_vtx_config(POWER_MAX + 1, 0);
+    if (TEAM_RACE != TEAM_RACE_OFF)
+        msp_set_vtx_config(POWER_PIT, 0);
     else
         msp_set_vtx_config(fc_pwr_rx, 0);
 

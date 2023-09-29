@@ -753,18 +753,11 @@ uint8_t camera_status_update(uint8_t op) {
             debugf("\r\nRF_Delay_Init: None");
 #endif
             if (PIT_MODE != PIT_OFF) {
-                Init_6300RF(RF_FREQ, POWER_MAX + 1);
+                InitAndCalibrate_6300RF(RF_FREQ, POWER_PIT);
                 vtx_pit = PIT_P1MW;
             } else {
-                WriteReg(0, 0x8F, 0x00);
-                WriteReg(0, 0x8F, 0x01);
-                DM6300_Init(RF_FREQ, RF_BW);
-                DM6300_SetChannel(RF_FREQ);
-                DM6300_SetPower(RF_POWER, RF_FREQ, pwr_offset);
-                cur_pwr = RF_POWER;
-                WriteReg(0, 0x8F, 0x11);
+                InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
             }
-            DM6300_AUXADC_Calib();
 
             camera_menu_show_saving();
             saving_start_sec = seconds;

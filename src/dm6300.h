@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "hardware.h"
+#include <stdbool.h>
 
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
 #define PIT_POWER 0x18 // 2dbm
@@ -20,6 +21,7 @@ uint16_t DM6300_GetFreqByChannel(uint8_t const ch);
 void DM6300_SetPower(uint8_t pwr, uint8_t freq, uint8_t offset);
 int16_t DM6300_GetTemp();
 void DM6300_AUXADC_Calib();
+void DM6300_powerOff();
 
 void DM6300_init1();
 void DM6300_init2(uint8_t sel);
@@ -32,9 +34,9 @@ void DM6300_RFTest();
 // void DM6300_M0();
 
 extern int16_t auxadc_offset;
-extern uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_MAX + 1];
+extern uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_PIT];
 
 extern uint32_t dcoc_ih, dcoc_qh;
 
-extern uint8_t dm6300_init_done;
+extern bool dm6300_init_done;
 #endif /* __DM6300_H_ */

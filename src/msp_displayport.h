@@ -58,12 +58,6 @@ typedef enum {
 } fc_variant_e;
 
 typedef enum {
-    PIT_OFF,
-    PIT_P1MW,
-    PIT_0MW
-} vtxPtiType_e;
-
-typedef enum {
     MSP_HEADER_START,
     MSP_HEADER_M,
     MSP_PACKAGE_REPLAY1,

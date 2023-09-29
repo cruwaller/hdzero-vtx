@@ -163,7 +163,7 @@ void MonEE(uint8_t op, uint8_t d) {
     uint8_t val;
     uint8_t addr;
 
-    addr = RF_FREQ * (POWER_MAX + 1) + RF_POWER;
+    addr = RF_FREQ * POWER_PIT + RF_POWER;
     val = I2C_Read8(ADDR_EEPROM, addr);
 
     switch (op) {
@@ -250,7 +250,7 @@ void Monitor(void) {
     // else if ( !stricmp( argv[0], "m0" ) )
     // DM6300_M0();
     else if (!stricmp(argv[0], "ch")) {
-        if (argc == 3 && Asc2Bin(argv[1]) < FREQ_NUM_INTERNAL && Asc2Bin(argv[2]) <= POWER_MAX) {
+        if (argc == 3 && Asc2Bin(argv[1]) < FREQ_NUM_INTERNAL && Asc2Bin(argv[2]) < POWER_PIT) {
             RF_FREQ = Asc2Bin(argv[1]);
             RF_POWER = Asc2Bin(argv[2]);
             DM6300_SetChannel(RF_FREQ);

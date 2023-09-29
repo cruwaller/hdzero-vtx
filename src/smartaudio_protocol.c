@@ -14,7 +14,7 @@
 
 uint8_t SA_lock = 0;
 
-uint8_t pwr_init = 0; // 0:POWER_MAX+2
+uint8_t pwr_init = 0; // 0:POWER_0mW
 uint8_t ch_init = 0;  // 0~9
 uint8_t ch_bf = 0;
 
@@ -46,37 +46,33 @@ uint32_t sa_start_ms = 0;
 
 uint8_t dbm_to_pwr(uint8_t dbm) {
     if (dbm == 0)
-        return POWER_MAX + 2;
+        return POWER_0mW;
     else if (dbm == 14) // 25mw
-        return 0;
+        return POWER_25mW;
     else if (dbm == 23) // 200mw
         return 1;
-#if (POWER_MAX > 1)
+#if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
     else if (dbm == 27) // 500mw
-        return 2;
-#endif
-#if (POWER_MAX > 2)
+        return POWER_500mW;
     else if (dbm == 30) // 1W
-        return 3;
+        return POWER_1000mW;
 #endif
     else
-        return 0;
+        return POWER_25mW;
 }
 
 uint8_t pwr_to_dbm(uint8_t pwr) {
-    if (pwr == 0) // 25mw
+    if (pwr == POWER_25mW) // 25mw
         return 14;
-    else if (pwr == 1) // 200mw
+    else if (pwr == POWER_200mW) // 200mw
         return 23;
-#if (POWER_MAX > 1)
-    else if (pwr == 2) // 500mw
+#if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
+    else if (pwr == POWER_500mW) // 500mw
         return 27;
-#endif
-#if (POWER_MAX > 2)
-    else if (pwr == 3) // 1W
+    else if (pwr == POWER_1000mW) // 1W
         return 30;
 #endif
-    else if (pwr == POWER_MAX + 2)
+    else if (pwr == POWER_0mW)
         return 0;
     else
         return 14;
@@ -110,14 +106,14 @@ void SA_Response(uint8_t cmd) {
     case SA_GET_SETTINGS:
         tbuf[0] = 0xAA;
         tbuf[1] = 0x55;
-        tbuf[2] = 0x11;               // version V2.1
-        tbuf[3] = 0x0A + POWER_MAX;   // length
-        tbuf[4] = ch_bf;              // channel
-        tbuf[5] = dbm_to_pwr(SA_dbm); // power level
-        tbuf[6] = mode_o;             // operation mode
-        tbuf[7] = freq_new_h;         // cur_freq_h
-        tbuf[8] = freq_new_l;         // cur_freq_l
-        tbuf[9] = SA_dbm;             // power dbm
+        tbuf[2] = 0x11;                   // version V2.1
+        tbuf[3] = 0x0A + (POWER_PIT - 1); // length
+        tbuf[4] = ch_bf;                  // channel
+        tbuf[5] = dbm_to_pwr(SA_dbm);     // power level
+        tbuf[6] = mode_o;                 // operation mode
+        tbuf[7] = freq_new_h;             // cur_freq_h
+        tbuf[8] = freq_new_l;             // cur_freq_l
+        tbuf[9] = SA_dbm;                 // power dbm
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
         if (powerLock) {
             tbuf[10] = 1 + 1; // amount of power level
@@ -126,10 +122,10 @@ void SA_Response(uint8_t cmd) {
             tbuf[12 + 1] = 0;
         } else
 #endif
-            tbuf[10] = POWER_MAX + 1; // amount of power level
-        for (i = 0; i <= POWER_MAX; i++)
+            tbuf[10] = POWER_PIT; // amount of power level
+        for (i = 0; i < POWER_PIT; i++)
             tbuf[11 + i] = pwr_to_dbm(i);
-        tbuf[12 + POWER_MAX] = 0;
+        tbuf[12 + (POWER_PIT - 1)] = 0;
 
         tx_len = tbuf[3] + 4;
         break;
@@ -216,8 +212,8 @@ void SA_Update(uint8_t cmd) {
 
         if (SA_dbm_last != SA_dbm) { // need to update power
             if (SA_dbm == 0) {       // Enter 0mW
-                cur_pwr = POWER_MAX + 2;
-                PIT_MODE = 0;
+                cur_pwr = POWER_0mW;
+                PIT_MODE = PIT_OFF;
                 vtx_pit = PIT_0MW;
 
                 if (last_SA_lock && seconds < WAIT_SA_CONFIG) {
@@ -226,13 +222,12 @@ void SA_Update(uint8_t cmd) {
 #ifdef _DEBUG_SMARTAUDIO
                     debugf("\n\rEnter 0mW");
 #endif
-                    WriteReg(0, 0x8F, 0x10); // reset RF_chip
-                    dm6300_init_done = 0;
+                    DM6300_powerOff();
                     temp_err = 1;
                 }
             } else if (SA_dbm_last == 0) { // Exit 0mW
                 cur_pwr = dbm_to_pwr(SA_dbm);
-                PIT_MODE = 0;
+                PIT_MODE = PIT_OFF;
                 RF_POWER = cur_pwr;
 
                 if (last_SA_lock && seconds < WAIT_SA_CONFIG)
@@ -242,16 +237,13 @@ void SA_Update(uint8_t cmd) {
                     debugf("\n\rExit 0mW");
 #endif
 
-                    Init_6300RF(RF_FREQ, RF_POWER);
-                    PIT_MODE = 0;
-
-                    DM6300_AUXADC_Calib();
+                    InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
                 }
             } else {
                 cur_pwr = dbm_to_pwr(SA_dbm);
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
                 if (powerLock)
-                    cur_pwr &= 0x01;
+                    cur_pwr &= POWER_200mW;
 #endif
                 RF_POWER = cur_pwr;
                 if (last_SA_lock && seconds < WAIT_SA_CONFIG)
@@ -259,7 +251,7 @@ void SA_Update(uint8_t cmd) {
                 else {
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-                    if ((RF_POWER == 3) && (!g_IS_ARMED))
+                    if ((RF_POWER == POWER_1000mW) && (!g_IS_ARMED))
                         pwr_lmt_done = 0;
                     else
 #endif
@@ -323,51 +315,49 @@ void SA_Update(uint8_t cmd) {
             mode_p = sa_rbuf[0] & 0x07;
 
             if (mode_p & 0x04) { // deactive pitmode
-                PIT_MODE = 0;
+                PIT_MODE = PIT_OFF;
                 mode_o &= 0x1d;
             } else { // active pitmode
-                PIT_MODE = 2;
+                PIT_MODE = PIT_0MW;
                 mode_o |= 0x02;
             }
-            if (cur_pwr == (POWER_MAX + 2))
+            if (cur_pwr == (POWER_0mW))
                 return;
 
             if (PIT_MODE) {
                 if (last_SA_lock && seconds < WAIT_SA_CONFIG)
                     pwr_init = cur_pwr;
-                else if (dbm_to_pwr(SA_dbm) == (POWER_MAX + 2)) {
-                    cur_pwr = POWER_MAX + 2;
-                    PIT_MODE = 0;
+                else if (dbm_to_pwr(SA_dbm) == POWER_0mW) {
+                    cur_pwr = POWER_0mW;
+                    PIT_MODE = PIT_OFF;
                     vtx_pit = PIT_0MW;
 #ifdef _DEBUG_SMARTAUDIO
                     debugf("\n\rSA:Enter 0mW");
 #endif
-                    WriteReg(0, 0x8F, 0x10); // reset RF_chip
-                    dm6300_init_done = 0;
+                    DM6300_powerOff();
                     temp_err = 1;
                 } else {
-                    DM6300_SetPower(POWER_MAX + 1, RF_FREQ, 0);
-                    cur_pwr = POWER_MAX + 1;
+                    DM6300_SetPower(POWER_PIT, RF_FREQ, 0);
+                    cur_pwr = POWER_PIT;
                 }
             } else {
                 if (last_SA_lock && seconds < WAIT_SA_CONFIG)
                     pwr_init = cur_pwr;
-                else if (dbm_to_pwr(SA_dbm) == (POWER_MAX + 2)) {
-                    cur_pwr = POWER_MAX + 2;
-                    PIT_MODE = 0;
+                else if (dbm_to_pwr(SA_dbm) == POWER_0mW) {
+                    cur_pwr = POWER_0mW;
+                    PIT_MODE = PIT_OFF;
                     vtx_pit = PIT_0MW;
 #ifdef _DEBUG_SMARTAUDIO
                     debugf("\n\rSA:Enter 0mW");
 #endif
-                    WriteReg(0, 0x8F, 0x10); // reset RF_chip
-                    dm6300_init_done = 0;
+                    DM6300_powerOff();
                     temp_err = 1;
                 } else {
 #ifndef VIDEO_PAT
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-                    if ((RF_POWER == 3) && (!g_IS_ARMED)) {
+                    if ((RF_POWER == POWER_1000mW) && (!g_IS_ARMED)) {
                         pwr_lmt_done = 0;
-                        cur_pwr = 3;
+                        cur_pwr = POWER_1000mW;
 #ifdef _DEBUG_SMARTAUDIO
                         debugf("\r\npwr_lmt_done reset");
 #endif

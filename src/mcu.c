@@ -248,49 +248,41 @@ void RF_Delay_Init() {
 #endif
         pwr_lmt_sec = PWR_LMT_SEC;
         if (SA_lock) {
-            if (pwr_init == POWER_MAX + 2) { // 0mW
-                RF_POWER = POWER_MAX + 2;
-                cur_pwr = POWER_MAX + 2;
+            if (pwr_init == POWER_0mW) { // 0mW
+                RF_POWER = POWER_0mW;
+                cur_pwr = POWER_0mW;
             } else if (PIT_MODE) {
-                Init_6300RF(ch_init, POWER_MAX + 1);
+                InitAndCalibrate_6300RF(ch_init, POWER_PIT);
 #ifdef _DEBUG_MODE
                 debugf("\r\n ch%x, pwr%x", (uint16_t)ch_init, (uint16_t)cur_pwr);
 #endif
             } else {
-                Init_6300RF(ch_init, pwr_init);
+                InitAndCalibrate_6300RF(ch_init, pwr_init);
 #ifdef _DEBUG_MODE
                 debugf("\r\n ch%x, pwr%x", (uint16_t)ch_init, (uint16_t)cur_pwr);
 #endif
             }
-            DM6300_AUXADC_Calib();
         }
     } else if (!mspVtxLock) {
 #ifdef _DEBUG_MODE
         debugf("\r\nRF_Delay_Init: None");
 #endif
-        if (TEAM_RACE == 0x01)
+        if (TEAM_RACE == TEAM_RACE_MODE1)
             vtx_paralized();
 #if (0)
         if (PIT_MODE == PIT_0MW) {
             pwr_lmt_done = 1;
-            RF_POWER = POWER_MAX + 2;
-            cur_pwr = POWER_MAX + 2;
+            RF_POWER = POWER_0mW;
+            cur_pwr = POWER_0mW;
             vtx_pit = PIT_0MW;
         } else if (PIT_MODE == PIT_P1MW) {
 #else
         if (PIT_MODE != PIT_OFF) {
 #endif
-            Init_6300RF(RF_FREQ, POWER_MAX + 1);
+            InitAndCalibrate_6300RF(RF_FREQ, POWER_PIT);
             vtx_pit = PIT_P1MW;
         } else {
-            WriteReg(0, 0x8F, 0x00);
-            WriteReg(0, 0x8F, 0x01);
-            DM6300_Init(RF_FREQ, RF_BW);
-            DM6300_SetChannel(RF_FREQ);
-            DM6300_SetPower(0, RF_FREQ, 0);
-            cur_pwr = RF_POWER;
-            WriteReg(0, 0x8F, 0x11);
+            InitAndCalibrate_6300RF(RF_FREQ, RF_POWER);
         }
-        DM6300_AUXADC_Calib();
     }
 }

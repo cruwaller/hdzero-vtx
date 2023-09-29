@@ -159,15 +159,15 @@ static uint16_t get_power(void) {
 static void set_power(uint16_t power) {
     switch (power) {
     case 0:
-        RF_POWER = POWER_MAX + 2;
+        RF_POWER = POWER_0mW;
         break;
     case 1:
-        RF_POWER = POWER_MAX + 1;
+        RF_POWER = POWER_PIT;
         break;
 
     case 14: // dBm
     case 25: // mw
-        RF_POWER = 0;
+        RF_POWER = POWER_25mW;
         break;
 
     case 23: // dBm
@@ -175,32 +175,23 @@ static void set_power(uint16_t power) {
     case 200:
     case 350:
     case 1000:
-        RF_POWER = 1;
+        RF_POWER = POWER_200mW;
         break;
 
     default:
         break;
     }
-    if (RF_POWER == POWER_MAX + 2) {
+    if (RF_POWER == POWER_0mW) {
         // enter 0mw
         cur_pwr = RF_POWER;
         vtx_pit = PIT_0MW;
 
-        WriteReg(0, 0x8F, 0x10); // reset RF_chip
-        dm6300_init_done = 0;
+        DM6300_powerOff();
         temp_err = 1;
     } else {
-
-        if (dm6300_init_done) {
-            DM6300_SetPower(RF_POWER, RF_FREQ, pwr_offset);
-
-        } else {
-            Init_6300RF(RF_FREQ, RF_POWER);
-            DM6300_AUXADC_Calib();
-            dm6300_init_done = 1;
-        }
+        SetPower_6300RF(RF_POWER, RF_FREQ, pwr_offset);
         cur_pwr = RF_POWER;
-        if (RF_POWER == POWER_MAX + 1)
+        if (RF_POWER == POWER_PIT)
             vtx_pit = PIT_P1MW;
     }
 }
@@ -348,7 +339,7 @@ void tramp_receive(void) {
 
 void tramp_init(void) {
     uint16_t time_ms = 3000;
-    RF_POWER = POWER_MAX + 2;
+    RF_POWER = POWER_0mW;
     while (time_ms--) {
         timer_task();
         tramp_receive();

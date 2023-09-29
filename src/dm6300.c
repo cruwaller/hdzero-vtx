@@ -22,9 +22,10 @@ uint32_t init6300_fnum[FREQ_NUM_EXTERNAL] = {0};
 uint32_t dcoc_ih = 0x075F0000;
 uint32_t dcoc_qh = 0x075F0000;
 
-uint8_t dm6300_init_done = 0;
+bool dm6300_init_done = 0;
+
 #if defined HDZERO_FREESTYLE || HDZERO_FREESTYLE_V2
-uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_MAX + 1] = {
+uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_PIT] = {
     {0x70, 0x68, 0x5c, 0x60},
     {0x70, 0x68, 0x5c, 0x60},
     {0x70, 0x68, 0x60, 0x60},
@@ -47,7 +48,7 @@ uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_MAX + 1] = {
     {0x70, 0x68, 0x5c, 0x60},
 };
 #else
-uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_MAX + 1] = {
+uint8_t table_power[FREQ_NUM_EXTERNAL][POWER_PIT] = {
     // race band
     {0x79, 0x83},
     {0x77, 0x81},
@@ -293,14 +294,14 @@ void DM6300_SetPower(uint8_t pwr, uint8_t freq, uint8_t offset) {
         freq = 0;
     SPI_Write(0x6, 0xFF0, 0x00000018);
 
-    if (pwr == POWER_MAX + 1) {
+    if (pwr == POWER_PIT) {
         SPI_Write(0x3, 0x330, 0x21F);
         SPI_Write(0x3, 0xD1C, PIT_POWER);
     } else {
         SPI_Write(0x3, 0x330, a_tab[pwr]);
 
 #ifndef _RF_CALIB
-        if (RF_POWER == 0 && pwr == 0) {
+        if (RF_POWER == POWER_25mW && pwr == POWER_25mW) {
             p = table_power[freq][pwr] + offset - 2;
 
             if (OFFSET_25MW <= 10)
@@ -402,6 +403,7 @@ void DM6300_AUXADC_Calib() {
     WriteReg(0, 0x8F, 0x11);
     dm6300_init_done = 1;
 }
+
 /*void DM6300_CalibRF()
 {
     uint8_t i, j;
@@ -428,6 +430,13 @@ void DM6300_AUXADC_Calib() {
 
     DM6300_SetSingleTone(0);
 }*/
+
+void DM6300_powerOff() {
+    WriteReg(0, 0x8F, 0x10);
+    dm6300_init_done = 0;
+    // SPI_Write(0x6, 0xFF0, 0x00000018);
+    // SPI_Write(0x3, 0xd00, 0x00000000);
+}
 
 int16_t DM6300_GetTemp() {
     static uint8_t init = 1;
